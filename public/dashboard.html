@@ -1,0 +1,355 @@
+<!-- public/dashboard.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Watch Party</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 1200px; margin: auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+        h1, h2 { color: #1c1e21; }
+        .grid { display: grid; grid-template-columns: 1fr; gap: 30px; }
+        @media (min-width: 992px) { .grid { grid-template-columns: 1fr 350px; } }
+        .card { background: #f7f8fa; border: 1px solid #ddd; padding: 20px; border-radius: 8px; }
+        .card h3 { margin-top: 0; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; }
+        input[type="text"], input[type="file"] { width: 100%; padding: 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+        button { background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; transition: background-color 0.2s; }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #aaa; cursor: not-allowed; }
+        #endStreamBtn { background-color: #dc3545; }
+        #endStreamBtn:hover { background-color: #c82333; }
+        #stream-status { margin-top: 20px; }
+        #player-container { background: #000; margin-top: 20px; border-radius: 8px; overflow: hidden; position: relative; padding-top: 56.25%; }
+        #player-container iframe, #player-container video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
+        .history-list ul { list-style: none; padding: 0; }
+        .history-list li { background: #fff; border: 1px solid #eee; padding: 10px; margin-bottom: 8px; border-radius: 4px; font-size: 14px; }
+        .history-list li strong { color: #007bff; }
+        .party-link { margin-top: 20px; background: #e9f5ff; border: 1px solid #bce8f1; padding: 15px; border-radius: 4px; }
+        .party-link a { color: #007bff; text-decoration: none; font-weight: bold; }
+        .message { padding: 10px; border-radius: 4px; margin-bottom: 15px; }
+        .message.success { background-color: #d4edda; color: #155724; }
+        .message.error { background-color: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Admin Dashboard</h1>
+        <div class="party-link">
+            Share this link with viewers: <a href="/party/1" target="_blank" id="viewerLink"></a>
+        </div>
+        <div id="message-area"></div>
+
+        <div class="grid">
+            <main>
+                <div id="stream-controls">
+                    <h2>Start a New Stream</h2>
+                    <div class="card" id="new-stream-forms">
+                        <!-- YouTube Form -->
+                        <form id="youtubeForm" class="form-group">
+                            <h3><label for="youtubeLink">YouTube Stream</label></h3>
+                            <input type="text" id="youtubeLink" placeholder="https://www.youtube.com/watch?v=...">
+                            <button type="submit">Start YouTube</button>
+                        </form>
+                        <hr>
+                        <!-- Local Video Form -->
+                        <form id="localForm" class="form-group">
+                            <h3><label for="videoFile">Upload Local Video (.mp4)</label></h3>
+                            <input type="file" id="videoFile" name="videoFile" accept="video/mp4">
+                            <button type="submit">Start Local Video</button>
+                        </form>
+                        <hr>
+                        <!-- Netflix Form -->
+                        <form id="netflixForm" class="form-group">
+                            <h3><label for="netflixTitle">Netflix Sync</label></h3>
+                            <input type="text" id="netflixTitle" placeholder="e.g., 'The Crown S01E01'">
+                            <button type="submit">Start Netflix Sync</button>
+                        </form>
+                    </div>
+                </div>
+
+                <div id="active-stream-panel" style="display: none;">
+                    <h2>Active Stream</h2>
+                    <div id="player-container"></div>
+                    <div id="admin-video-controls" style="margin-top: 10px;">
+                        <button id="playBtn">Play</button>
+                        <button id="pauseBtn">Pause</button>
+                    </div>
+                    <div id="netflix-sync-controls" style="display: none; margin-top: 10px;">
+                        <p>Instruct viewers to open Netflix and the specified title. Use this button to sync their playback time.</p>
+                        <button id="netflixSyncBtn">Sync Viewers to 00:00</button>
+                    </div>
+                    <button id="endStreamBtn" style="margin-top: 20px;">End Current Stream</button>
+                </div>
+            </main>
+
+            <aside>
+                <div id="stream-status" class="card">
+                    <h3>Stream Status</h3>
+                    <p id="current-status">No active stream.</p>
+                    <p id="current-source"></p>
+                </div>
+                <div id="stream-history" class="card history-list" style="margin-top: 20px;">
+                    <h3>Session History</h3>
+                    <ul id="history-list-ul">
+                        <li>No past sessions.</li>
+                    </ul>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let ytPlayer;
+        let localPlayer;
+
+        // --- DOM Elements ---
+        const youtubeForm = document.getElementById('youtubeForm');
+        const localForm = document.getElementById('localForm');
+        const netflixForm = document.getElementById('netflixForm');
+        const endStreamBtn = document.getElementById('endStreamBtn');
+        const messageArea = document.getElementById('message-area');
+        const newStreamForms = document.getElementById('new-stream-forms');
+        const activeStreamPanel = document.getElementById('active-stream-panel');
+        const playerContainer = document.getElementById('player-container');
+        const currentStatus = document.getElementById('current-status');
+        const currentSource = document.getElementById('current-source');
+        const historyListUl = document.getElementById('history-list-ul');
+        const viewerLink = document.getElementById('viewerLink');
+        
+        const playBtn = document.getElementById('playBtn');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const adminVideoControls = document.getElementById('admin-video-controls');
+        
+        const netflixSyncControls = document.getElementById('netflix-sync-controls');
+        const netflixSyncBtn = document.getElementById('netflixSyncBtn');
+
+        // --- Initial Setup ---
+        document.addEventListener('DOMContentLoaded', () => {
+            viewerLink.href = `${window.location.origin}/party/1`;
+            viewerLink.textContent = `${window.location.origin}/party/1`;
+            fetchStatus();
+        });
+
+        // --- API Calls ---
+        async function fetchStatus() {
+            try {
+                const response = await fetch('/api/stream-status');
+                const data = await response.json();
+                updateStatusUI(data.activeStream);
+                updateHistoryUI(data.streamHistory);
+            } catch (error) {
+                console.error('Error fetching status:', error);
+                showMessage('Error fetching server status.', 'error');
+            }
+        }
+
+        // --- UI Update Functions ---
+        function showMessage(text, type = 'success') {
+            messageArea.innerHTML = `<div class="message ${type}">${text}</div>`;
+            setTimeout(() => messageArea.innerHTML = '', 4000);
+        }
+
+        function updateStatusUI(stream) {
+            if (stream) {
+                newStreamForms.style.display = 'none';
+                activeStreamPanel.style.display = 'block';
+                currentStatus.textContent = `Active: ${stream.type.charAt(0).toUpperCase() + stream.type.slice(1)}`;
+                currentSource.textContent = `Source: ${stream.source}`;
+                setupPlayer(stream);
+            } else {
+                newStreamForms.style.display = 'block';
+                activeStreamPanel.style.display = 'none';
+                playerContainer.innerHTML = '';
+                currentStatus.textContent = 'No active stream.';
+                currentSource.textContent = '';
+                ytPlayer = null;
+                localPlayer = null;
+            }
+        }
+
+        function updateHistoryUI(history) {
+            historyListUl.innerHTML = '';
+            if (history.length === 0) {
+                historyListUl.innerHTML = '<li>No past sessions.</li>';
+                return;
+            }
+            history.forEach(item => {
+                const li = document.createElement('li');
+                li.innerHTML = `<strong>${item.type}</strong>: ${item.source.substring(0,30)}... <br><small>Started: ${new Date(item.startTime).toLocaleTimeString()}</small>`;
+                historyListUl.appendChild(li);
+            });
+        }
+
+        function setupPlayer(stream) {
+            playerContainer.innerHTML = '';
+            adminVideoControls.style.display = 'none';
+            netflixSyncControls.style.display = 'none';
+
+            if (stream.type === 'youtube') {
+                adminVideoControls.style.display = 'block';
+                const playerDiv = document.createElement('div');
+                playerDiv.id = 'yt-player';
+                playerContainer.appendChild(playerDiv);
+                
+                if (!window.YT) {
+                    const tag = document.createElement('script');
+                    tag.src = "https://www.youtube.com/iframe_api";
+                    const firstScriptTag = document.getElementsByTagName('script')[0];
+                    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+                } else {
+                     loadYouTubePlayer(stream.source);
+                }
+                
+                window.onYouTubeIframeAPIReady = () => loadYouTubePlayer(stream.source);
+
+            } else if (stream.type === 'local') {
+                adminVideoControls.style.display = 'block';
+                localPlayer = document.createElement('video');
+                localPlayer.src = stream.source;
+                localPlayer.controls = true; // Admin has controls
+                playerContainer.appendChild(localPlayer);
+                
+                localPlayer.addEventListener('play', () => socket.emit('control:play', { time: localPlayer.currentTime }));
+                localPlayer.addEventListener('pause', () => socket.emit('control:pause', { time: localPlayer.currentTime }));
+                localPlayer.addEventListener('seeked', () => socket.emit('control:seek', { time: localPlayer.currentTime }));
+
+            } else if (stream.type === 'netflix') {
+                netflixSyncControls.style.display = 'block';
+                playerContainer.innerHTML = `<div style="padding: 20px; text-align: center; color: white;">
+                    <h2>Netflix Sync: ${stream.source}</h2>
+                    <p>Viewers have been instructed to open this title on Netflix.</p>
+                </div>`;
+            }
+        }
+        
+        function loadYouTubePlayer(videoId) {
+             ytPlayer = new YT.Player('yt-player', {
+                height: '100%',
+                width: '100%',
+                videoId: videoId,
+                playerVars: { 'autoplay': 0, 'controls': 1, 'rel': 0 },
+                events: {
+                    'onStateChange': onPlayerStateChange
+                }
+            });
+        }
+
+        // --- Event Handlers ---
+        youtubeForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const youtubeLink = document.getElementById('youtubeLink').value;
+            const response = await fetch('/admin/stream/youtube', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `youtubeLink=${encodeURIComponent(youtubeLink)}`
+            });
+            const result = await response.json();
+            if (response.ok) {
+                showMessage('YouTube stream started!', 'success');
+                fetchStatus();
+            } else {
+                showMessage(result.message, 'error');
+            }
+        });
+        
+        localForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData();
+            formData.append('videoFile', document.getElementById('videoFile').files[0]);
+            
+            const response = await fetch('/admin/stream/local', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+             if (response.ok) {
+                showMessage('Local video stream started!', 'success');
+                fetchStatus();
+            } else {
+                showMessage(result.message, 'error');
+            }
+        });
+
+        netflixForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const netflixTitle = document.getElementById('netflixTitle').value;
+            const response = await fetch('/admin/stream/netflix', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: `netflixTitle=${encodeURIComponent(netflixTitle)}`
+            });
+            const result = await response.json();
+            if (response.ok) {
+                showMessage('Netflix sync session started!', 'success');
+                fetchStatus();
+            } else {
+                showMessage(result.message, 'error');
+            }
+        });
+
+        endStreamBtn.addEventListener('click', async () => {
+            const response = await fetch('/admin/stream/end', { method: 'POST' });
+            const result = await response.json();
+            if (response.ok) {
+                showMessage('Stream ended.', 'success');
+                fetchStatus();
+            } else {
+                showMessage(result.message, 'error');
+            }
+        });
+
+        // Video control buttons
+        playBtn.addEventListener('click', () => {
+            if (ytPlayer && typeof ytPlayer.playVideo === 'function') {
+                ytPlayer.playVideo();
+            } else if (localPlayer) {
+                localPlayer.play();
+            }
+        });
+
+        pauseBtn.addEventListener('click', () => {
+            if (ytPlayer && typeof ytPlayer.pauseVideo === 'function') {
+                ytPlayer.pauseVideo();
+            } else if (localPlayer) {
+                localPlayer.pause();
+            }
+        });
+        
+        netflixSyncBtn.addEventListener('click', () => {
+            // Example: sync to 30 seconds
+            const time = 0; // Or get from an input
+            socket.emit('control:netflix-sync', { time: time });
+            showMessage(`Sent sync command to viewers for time ${time}s.`, 'success');
+        });
+
+        // YouTube Player State Change Handler
+        function onPlayerStateChange(event) {
+            // 1 = playing, 2 = paused
+            if (event.data === YT.PlayerState.PLAYING) {
+                socket.emit('control:play', { time: ytPlayer.getCurrentTime() });
+            } else if (event.data === YT.PlayerState.PAUSED) {
+                socket.emit('control:pause', { time: ytPlayer.getCurrentTime() });
+            }
+            // Seeking is handled implicitly by the player state changes
+        }
+        
+        // --- Socket.IO Listeners ---
+        // Listen for stream changes initiated by another admin tab, for example.
+        socket.on('stream:start', (stream) => {
+            console.log('Detected stream start via socket');
+            updateStatusUI(stream);
+        });
+
+        socket.on('stream:end', () => {
+            console.log('Detected stream end via socket');
+            fetchStatus(); // Refetch everything to be safe
+        });
+
+    </script>
+</body>
+</html>

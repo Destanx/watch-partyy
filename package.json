@@ -1,0 +1,24 @@
+{
+  "name": "watch-party-system",
+  "version": "1.0.0",
+  "description": "A simplified synchronized video watch party system with WebRTC and cookie-based rejoin.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "socket.io",
+    "express",
+    "watch-party",
+    "webrtc",
+    "cookie"
+  ],
+  "author": "Gemini",
+  "license": "ISC",
+  "dependencies": {
+    "cookie-parser": "^1.4.6",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "socket.io": "^4.7.5"
+  }
+}

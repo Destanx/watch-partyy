@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yeni İzleme Partisi</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        #player-container { position: relative; width: 100%; padding-top: 56.25%; }
+        #youtube-player, #video-player { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex items-center justify-center min-h-screen p-4">
+    <div class="w-full max-w-2xl mx-auto">
+        
+        <!-- Parti Başlatma Formu -->
+        <div id="start-container">
+            <div class="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl">
+                <h1 class="text-3xl sm:text-4xl font-bold text-center text-indigo-400 mb-6">Yeni Bir Parti Başlat</h1>
+                <form id="start-stream-form" class="space-y-6">
+                    <div>
+                        <label class="font-medium flex items-center p-4 bg-gray-700 rounded-lg cursor-pointer border-2 border-transparent has-[:checked]:border-indigo-500 has-[:checked]:bg-gray-600">
+                            <input type="radio" name="type" value="youtube" checked class="mr-4 h-5 w-5 text-indigo-600 bg-gray-800 border-gray-600 focus:ring-indigo-500">
+                            <span class="text-lg">YouTube</span>
+                        </label>
+                        <input type="text" name="youtubeLink" placeholder="https://www.youtube.com/watch?v=..." class="w-full mt-2 p-3 bg-gray-800 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    <div>
+                        <label class="font-medium flex items-center p-4 bg-gray-700 rounded-lg cursor-pointer border-2 border-transparent has-[:checked]:border-indigo-500 has-[:checked]:bg-gray-600">
+                            <input type="radio" name="type" value="video" class="mr-4 h-5 w-5 text-indigo-600 bg-gray-800 border-gray-600 focus:ring-indigo-500">
+                            <span class="text-lg">Yerel Video (.mp4)</span>
+                        </label>
+                        <input type="file" name="videoFile" accept=".mp4" class="w-full mt-2 p-2 text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-500 file:text-white hover:file:bg-indigo-600">
+                    </div>
+                    <div>
+                        <label class="font-medium flex items-center p-4 bg-gray-700 rounded-lg cursor-pointer border-2 border-transparent has-[:checked]:border-indigo-500 has-[:checked]:bg-gray-600">
+                            <input type="radio" name="type" value="screenShare" class="mr-4 h-5 w-5 text-indigo-600 bg-gray-800 border-gray-600 focus:ring-indigo-500">
+                            <span class="text-lg">Ekran Paylaşımı</span>
+                        </label>
+                    </div>
+                    <button type="submit" id="start-btn" class="w-full py-3 font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-500 transition-transform transform hover:scale-105">
+                        Partiyi Başlat
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Aktif Parti Arayüzü -->
+        <div id="active-party-container" class="hidden">
+            <div class="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl">
+                <h2 class="text-2xl font-semibold mb-2">Yayın Aktif!</h2>
+                <div id="current-stream-info" class="text-gray-300 mb-4"></div>
+                
+                <div id="share-link-container" class="mb-4">
+                    <label class="font-semibold text-gray-400">İzleyicilerle Paylaş:</label>
+                    <div class="flex items-center mt-1">
+                        <input type="text" id="share-link-input" readonly class="w-full p-2 bg-gray-700 border border-gray-600 rounded-l-md text-indigo-300 focus:outline-none">
+                        <button id="copy-link-btn" class="px-4 py-2 bg-indigo-600 rounded-r-md hover:bg-indigo-700 whitespace-nowrap">Kopyala</button>
+                    </div>
+                </div>
+
+                <div id="player-container" class="bg-black rounded-md mb-4">
+                    <div id="youtube-player"></div>
+                    <video id="video-player" class="hidden" controls muted></video>
+                </div>
+                
+                <div id="global-controls" class="hidden flex items-center justify-center space-x-4">
+                    <button id="play-pause-btn" class="px-4 py-2 bg-green-500 rounded hover:bg-green-600 disabled:bg-gray-500">Oynat</button>
+                    <input type="range" id="seek-bar" value="0" class="w-64 align-middle" disabled>
+                    <span id="time-display">00:00 / 00:00</span>
+                </div>
+
+                <button id="end-btn" class="w-full mt-6 py-3 font-semibold text-white bg-red-600 rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-red-500">
+                    Partiyi Bitir
+                </button>
+            </div>
+        </div>
+        <div id="error-message" class="text-red-400 mt-4 text-center"></div>
+    </div>
+    <script src="/js/main.js"></script>
+</body>
+</html>

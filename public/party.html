@@ -1,0 +1,163 @@
+<!-- public/party.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Watch Party</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #141414; color: #fff; margin: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; }
+        #player-wrapper { width: 100%; max-width: 1200px; background: #000; border-radius: 8px; overflow: hidden; }
+        #player-container { position: relative; padding-top: 56.25%; /* 16:9 Aspect Ratio */ }
+        #player-container iframe, #player-container video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
+        #status-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; text-align: center; }
+        #status-overlay h2 { font-size: 2em; }
+        #status-overlay p { font-size: 1.2em; color: #aaa; }
+        .hidden { display: none !important; }
+        /* Simple pointer events none for viewer */
+        .no-interaction { pointer-events: none; }
+    </style>
+</head>
+<body>
+
+    <div id="player-wrapper">
+        <div id="player-container">
+            <!-- Player will be injected here -->
+        </div>
+        <div id="status-overlay">
+            <div>
+                <h2 id="status-title">Waiting for the party to start...</h2>
+                <p id="status-details"></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let ytPlayer;
+        let localPlayer;
+
+        // --- DOM Elements ---
+        const playerContainer = document.getElementById('player-container');
+        const statusOverlay = document.getElementById('status-overlay');
+        const statusTitle = document.getElementById('status-title');
+        const statusDetails = document.getElementById('status-details');
+
+        // --- Player Setup ---
+        function setupPlayer(stream) {
+            playerContainer.innerHTML = '';
+            statusOverlay.classList.add('hidden');
+
+            if (stream.type === 'youtube') {
+                const playerDiv = document.createElement('div');
+                playerDiv.id = 'yt-player';
+                playerDiv.className = 'no-interaction';
+                playerContainer.appendChild(playerDiv);
+                
+                if (!window.YT) {
+                    const tag = document.createElement('script');
+                    tag.src = "https://www.youtube.com/iframe_api";
+                    const firstScriptTag = document.getElementsByTagName('script')[0];
+                    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+                }
+                
+                window.onYouTubeIframeAPIReady = () => {
+                    ytPlayer = new YT.Player('yt-player', {
+                        height: '100%',
+                        width: '100%',
+                        videoId: stream.source,
+                        playerVars: { 
+                            'autoplay': 0, 
+                            'controls': 0, // No controls for viewers
+                            'rel': 0,
+                            'iv_load_policy': 3,
+                            'modestbranding': 1
+                        },
+                    });
+                };
+
+            } else if (stream.type === 'local') {
+                localPlayer = document.createElement('video');
+                localPlayer.src = stream.source;
+                localPlayer.className = 'no-interaction';
+                // localPlayer.controls = false; // Redundant due to no-interaction
+                playerContainer.appendChild(localPlayer);
+
+            } else if (stream.type === 'netflix') {
+                playerContainer.innerHTML = ''; // Clear player area
+                statusOverlay.classList.remove('hidden');
+                statusTitle.textContent = 'Netflix Party!';
+                statusDetails.innerHTML = `Please open Netflix and find the title: <br><strong>${stream.source}</strong><br>The admin will sync playback shortly.`;
+            }
+        }
+
+        // --- Socket.IO Listeners ---
+        socket.on('stream:start', (stream) => {
+            console.log('Stream starting:', stream);
+            setupPlayer(stream);
+        });
+
+        socket.on('stream:end', (data) => {
+            console.log('Stream ended');
+            ytPlayer = null;
+            localPlayer = null;
+            playerContainer.innerHTML = '';
+            statusOverlay.classList.remove('hidden');
+            statusTitle.textContent = 'The party has ended.';
+            statusDetails.textContent = data.message || '';
+        });
+
+        socket.on('control:play', (data) => {
+            console.log('Received play command at time:', data.time);
+            if (ytPlayer && typeof ytPlayer.seekTo === 'function') {
+                ytPlayer.seekTo(data.time, true);
+                ytPlayer.playVideo();
+            } else if (localPlayer) {
+                localPlayer.currentTime = data.time;
+                localPlayer.play();
+            }
+        });
+
+        socket.on('control:pause', (data) => {
+            console.log('Received pause command at time:', data.time);
+            if (ytPlayer && typeof ytPlayer.pauseVideo === 'function') {
+                ytPlayer.pauseVideo();
+                // A small seek adjustment can fix desync issues
+                ytPlayer.seekTo(data.time, true);
+            } else if (localPlayer) {
+                localPlayer.pause();
+                localPlayer.currentTime = data.time;
+            }
+        });
+
+        socket.on('control:seek', (data) => {
+            console.log('Received seek command to time:', data.time);
+            if (ytPlayer && typeof ytPlayer.seekTo === 'function') {
+                ytPlayer.seekTo(data.time, true);
+            } else if (localPlayer) {
+                localPlayer.currentTime = data.time;
+            }
+        });
+        
+        socket.on('control:netflix-sync', (data) => {
+            console.log('Received Netflix sync command to time:', data.time);
+            statusTitle.textContent = 'SYNC NOW!';
+            statusDetails.innerHTML = `The admin has started the stream. Please seek to <strong>${new Date(data.time * 1000).toISOString().substr(14, 5)}</strong> and press play!`;
+            
+            // Add a countdown visual
+            let countdown = 5;
+            const countdownInterval = setInterval(() => {
+                if(countdown > 0) {
+                    statusDetails.innerHTML += `<br><h2>${countdown}...</h2>`;
+                    countdown--;
+                } else {
+                    statusDetails.innerHTML = `Enjoy the show!`;
+                    clearInterval(countdownInterval);
+                }
+            }, 1000);
+        });
+
+    </script>
+</body>
+</html>
